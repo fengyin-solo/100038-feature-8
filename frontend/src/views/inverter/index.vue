@@ -27,6 +27,8 @@
       <button class="btn ghost" type="button" @click="resetFilters">重置条件</button>
     </form>
 
+    <EfficiencyPanel :rows="rows" :selected-id="selectedId" @select="locateRow" />
+
     <table class="data-table">
       <thead>
         <tr>
@@ -35,7 +37,12 @@
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="String(row.id)">
+        <tr
+          v-for="row in rows"
+          :key="String(row.id)"
+          :ref="(el) => setRowRef(el, Number(row.id))"
+          :class="{ 'row-selected': selectedId === Number(row.id) }"
+        >
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
@@ -63,9 +70,11 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
+
+import EfficiencyPanel from './EfficiencyPanel.vue'
 
 type Row = Record<string, string | number | null>
 
@@ -80,6 +89,23 @@ const total = ref(0)
 const errorMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+const selectedId = ref<number | null>(null)
+const rowRefs = new Map<number, HTMLElement>()
+
+function setRowRef(el: Element | unknown, id: number) {
+  if (el instanceof HTMLElement) {
+    rowRefs.set(id, el)
+  } else {
+    rowRefs.delete(id)
+  }
+}
+
+// 面板选中某台设备：列表同步高亮并滚动定位到那一行。
+async function locateRow(id: number) {
+  selectedId.value = id
+  await nextTick()
+  rowRefs.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
 
 function resetFilters() {
   filters.value = {}
@@ -121,6 +147,10 @@ async function reload() {
     const payload = await response.json()
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
+    // 条件变化后选中的行若已不在结果里，取消高亮，避免面板和列表指向不一致。
+    if (selectedId.value !== null && !rows.value.some((row) => Number(row.id) === selectedId.value)) {
+      selectedId.value = null
+    }
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '逆变器管理列表读取失败'
   }
@@ -128,3 +158,10 @@ async function reload() {
 
 onMounted(reload)
 </script>
+
+<style scoped>
+.data-table :deep(.row-selected) td {
+  background: #eaf2ff;
+  box-shadow: inset 3px 0 0 var(--brand);
+}
+</style>
